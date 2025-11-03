@@ -8,12 +8,20 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middlewares
-const allowedOrigins = ['http://localhost:3000', 'https://intercanjes.com'];
+const allowedOrigins = ['http://localhost:3000', 'https://intercanjes.com', 'https://api.intercanjes.com', 'https://www.intercanjes.com'];
+const allowedOriginPatterns = [/^https?:\/\/(?:.+\.)?intercanjes\.com$/];
 const corsOptions = {
   origin: function(origin, callback) {
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+    if (!origin) {
       return callback(null, true);
     }
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      return callback(null, true);
+    }
+    if (allowedOriginPatterns.some((re) => re.test(origin))) {
+      return callback(null, true);
+    }
+    console.warn('CORS blocked Origin:', origin);
     return callback(new Error('Not allowed by CORS'));
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
