@@ -32,9 +32,9 @@ transporter.verify(function (error, success) {
  * @param {string} contactData.mensaje - Mensaje
  * @param {string} contactData.empresa - Nombre de la empresa (solo para 'canjea')
  * @param {string} contactData.ubicacion - Ubicación (solo para 'canjea')
- * @param {string} contactData.foto - Nombre del archivo de foto (solo para 'canjea')
+ * @param {Array} contactData.fotos - Array de archivos de fotos (multer files)
  */
-const sendContactEmail = async ({ tipo, nombre, mail, telefono, mensaje, empresa, ubicacion, foto }) => {
+const sendContactEmail = async ({ tipo, nombre, mail, telefono, mensaje, empresa, ubicacion, fotos = [] }) => {
   // Determinar el asunto según el tipo de formulario
   const subject = tipo === 'canjea' 
     ? 'Nuevo intercambio - CANJEA' 
@@ -57,8 +57,11 @@ const sendContactEmail = async ({ tipo, nombre, mail, telefono, mensaje, empresa
   const ubicacionSafe = escapeHtml(ubicacion || (tipo === 'canjea' ? 'No especificada' : 'N/A'));
   const mensajeSafe = escapeHtml(mensaje).replace(/\n/g, '<br>');
   const empresaSafe = empresa ? escapeHtml(empresa) : '';
+  
+  // Subject para el reply (codificado para URL)
+  const replySubject = encodeURIComponent(`Re: Tu consulta en Intercanjes - ${tipo === 'canjea' ? 'CANJEA' : 'FORMÁ PARTE'}`);
 
-  // Preparar attachments (logo)
+  // Preparar attachments (logo y fotos)
   const attachments = [];
   const publicDir = path.join(__dirname, '../../public');
   
@@ -82,6 +85,28 @@ const sendContactEmail = async ({ tipo, nombre, mail, telefono, mensaje, empresa
       filename: attachmentFilename,
       path: logoPath,
       cid: 'logo'
+    });
+  }
+
+  // Procesar fotos subidas por el usuario
+  const fotosCids = [];
+  if (fotos && fotos.length > 0) {
+    fotos.forEach((foto, index) => {
+      const cid = `foto-${index + 1}`;
+      const extension = foto.originalname.split('.').pop() || 'jpg';
+      const filename = `foto-${index + 1}.${extension}`;
+      
+      attachments.push({
+        filename: filename,
+        content: foto.buffer,
+        cid: cid,
+        contentType: foto.mimetype
+      });
+      
+      fotosCids.push({
+        cid: cid,
+        filename: foto.originalname || filename
+      });
     });
   }
 
@@ -196,16 +221,6 @@ const sendContactEmail = async ({ tipo, nombre, mail, telefono, mensaje, empresa
                       </td>
                     </tr>
                     ` : ''}
-                    ${foto ? `
-                    <tr>
-                      <td style="padding:16px 18px; border-bottom:1px solid #1f2937;">
-                        <span style="display:inline-block; font:600 12px/1 Arial, Helvetica, sans-serif; color:#9ca3af; text-transform:uppercase; letter-spacing:.06em;">Foto adjunta</span>
-                        <div style="margin-top:6px; font:600 15px/1.5 Arial, Helvetica, sans-serif; color:#ffffff;">
-                          ${escapeHtml(foto)}
-                        </div>
-                      </td>
-                    </tr>
-                    ` : ''}
                     <tr>
                       <td style="padding:16px 18px;">
                         <span style="display:inline-block; font:600 12px/1 Arial, Helvetica, sans-serif; color:#9ca3af; text-transform:uppercase; letter-spacing:.06em;">Descripción</span>
@@ -218,13 +233,44 @@ const sendContactEmail = async ({ tipo, nombre, mail, telefono, mensaje, empresa
                 </td>
               </tr>
 
+              ${fotosCids.length > 0 ? `
+              <!-- Fotos adjuntas -->
+              <tr>
+                <td class="px" style="padding:20px 24px; background:#0b0b0b;">
+                  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:separate; border-spacing:0; background:#111827; border:1px solid #1f2937; border-radius:10px;">
+                    <tr>
+                      <td style="padding:16px 18px; border-bottom:1px solid #1f2937;">
+                        <span style="display:inline-block; font:600 12px/1 Arial, Helvetica, sans-serif; color:#9ca3af; text-transform:uppercase; letter-spacing:.06em;">Fotos adjuntas (${fotosCids.length})</span>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:16px 18px;">
+                        <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+                          ${fotosCids.map((foto, idx) => `
+                          <tr>
+                            <td style="padding-bottom:${idx < fotosCids.length - 1 ? '16px' : '0'};">
+                              <img src="cid:${foto.cid}" alt="${escapeHtml(foto.filename)}" style="display:block; max-width:100%; height:auto; border-radius:8px; border:1px solid #1f2937;" />
+                              <p style="margin:8px 0 0; font:400 12px/1.4 Arial, Helvetica, sans-serif; color:#9ca3af;">
+                                ${escapeHtml(foto.filename)}
+                              </p>
+                            </td>
+                          </tr>
+                          `).join('')}
+                        </table>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+              ` : ''}
+
               <!-- CTA / Footer -->
               <tr>
                 <td class="px ptb" style="padding:10px 24px 28px 24px; background:#0b0b0b;">
                   <table role="presentation" width="100%">
                     <tr>
                       <td align="left" style="padding-top:8px;">
-                        <a href="mailto:${mailSafe}?subject=Re:%20Tu%20consulta%20en%20Intercanjes" 
+                        <a href="mailto:${mail}?subject=${replySubject}" 
                            style="display:inline-block; background:#f97316; color:#0b0b0b; font:700 14px/1 Arial, Helvetica, sans-serif; padding:12px 18px; border-radius:8px; text-decoration:none;">
                           Responder al contacto
                         </a>
@@ -248,6 +294,10 @@ const sendContactEmail = async ({ tipo, nombre, mail, telefono, mensaje, empresa
 </html>`;
 
   // Versión texto plano
+  const fotosText = fotosCids.length > 0 
+    ? `\nFotos adjuntas (${fotosCids.length}):\n${fotosCids.map((f, i) => `  ${i + 1}. ${f.filename}`).join('\n')}\n` 
+    : '';
+  
   const textVersion = `
 Nuevo mensaje de contacto - ${tipo.toUpperCase()}
 
@@ -256,17 +306,17 @@ Has recibido una nueva consulta desde el formulario de Intercanjes.
 Nombre: ${nombre}
 ${empresa ? `Empresa: ${empresa}\n` : ''}Teléfono: ${telefono || 'No proporcionado'}
 Email: ${mail}
-${tipo === 'canjea' ? `Ubicación: ${ubicacion || 'No especificada'}\n` : ''}${foto ? `Foto: ${foto}\n` : ''}
+${tipo === 'canjea' ? `Ubicación: ${ubicacion || 'No especificada'}\n` : ''}
 Descripción:
 ${mensaje}
-
+${fotosText}
 ---
 © Intercanjes. Este mensaje fue enviado automáticamente desde el formulario de contacto.
   `.trim();
 
   const mailOptions = {
     from: process.env.EMAIL_FROM || 'intercanjes@gmail.com',
-    to: process.env.EMAIL_TO || 'intercanjes@gmail.com',
+    to: 'alexis.correa026@gmail.com',
     subject: subject,
     html: htmlTemplate,
     text: textVersion,
