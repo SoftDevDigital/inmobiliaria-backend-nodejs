@@ -316,7 +316,7 @@ ${fotosText}
 
   const mailOptions = {
     from: process.env.EMAIL_FROM || 'intercanjes@gmail.com',
-    to: 'alexis.correa026@gmail.com',
+    to: process.env.EMAIL_TO || 'intercanjes@gmail.com',
     subject: subject,
     html: htmlTemplate,
     text: textVersion,
